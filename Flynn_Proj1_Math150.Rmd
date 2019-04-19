@@ -1,5 +1,5 @@
 ---
-title: "Project 1"
+title: "Project 2"
 author: "Clare Flynn"
 ---
 
@@ -13,7 +13,7 @@ library(survival)
 ```
 
 ```{r, include=FALSE}
-aids <- read.csv("/home/CAMPUS/cmfa2015/Math150_proj/AIDSdata.csv")
+aids <- read.csv(file="AIDSdata.csv")
 
 aids$censor[which(aids$censor==0)]
 aids$censor[which(aids$censor==1)]
@@ -34,6 +34,10 @@ This next histogram shows the time to event only for those who died or were diag
 hist(aids$time[which(aids$censor==1)], xlab="Time (days)", main="Time to Diagnosis or Death")
 ```
 
+
+```{r, include=FALSE}
+pairs(~time + karnof + cd4 + age + priorzdv, data=aids)
+```
 
 The following is a Kaplan-Meier Curve for all participants in the study. The curve is not very steep, since very few participants died or were diagnosed with AIDs during the study period.
 
@@ -62,3 +66,58 @@ There is a significant difference in survival time between the four groups based
 survdiff(Surv(aids$time, aids$censor)~txgrp + k, data=aids,  rho=0)
 survdiff(Surv(aids$time, aids$censor)~txgrp + k, data=aids,  rho=1)
 ```
+
+
+
+***Something New***
+
+I will use the Weibull model in order to do a more in depth survival analysis. The Weibull model is simial to KM and Cox Hazards, but adds in the variables $\lambda$ and $p$, where $\lambda$ is a scale parameter, and $p$ is a shape parameter.
+
+The equation for the instantaneous hazard is
+
+$$h(t) = \lambda*p*t^{p-1}$$
+
+The equation for the cumulative hazard is
+
+$$ H(t) = \lambda*t^p$$
+
+And the equation for the cumulative survival rate is 
+
+$$ S(t) = e^{-(\lambda*t)^p}$$
+
+The following plot is the Weibull curves plotted on top of the KM curve, since I don't know how to do it better yet.
+
+```{r}
+
+plot(survfit(Surv(aids$time, aids$censor)~1, data=aids))
+
+sWei <- survreg(Surv(aids$time, aids$censor)~tx + k, data=aids,dist='weibull')
+
+lines(predict(sWei, newdata=list(tx=1, k="lo"),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="purple")
+
+lines(predict(sWei, newdata=list(tx=0, k="lo"),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="green")
+
+lines(predict(sWei, newdata=list(tx=1, k="hi"),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="blue")
+
+lines(predict(sWei, newdata=list(tx=0, k="hi"),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="red")
+```
+
+These curves look very similar to the KM curves above, but are much smoother. The extra parameters must make the function less step-wise. 
+
+A challenge moving forward will be understanding what the different pieces of the equations for making this model mean. Especially since every source I find uses different notations for the equations.
+
+
+I will use the following sources to help understand the Weibull functions (and will correctly cite them for the final project)
+
+http://www.massey.ac.nz/massey/fms/Colleges/College%20of%20Sciences/Epicenter/docs/ASVCS/Stevenson_survival_analysis_195_721.pdf
+
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5233524/
+
+https://data.princeton.edu/pop509/ParametricSurvival.pdf
+
+
+
+
+
+
+
