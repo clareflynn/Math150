@@ -13,7 +13,7 @@ library(survival)
 ```
 
 ```{r, include=FALSE}
-aids <- read.csv("/home/CAMPUS/cmfa2015/beginnersluck/Math150/AIDSdata.csv")
+aids <- read.csv("/home/CAMPUS/cmfa2015/Math150_proj/AIDSdata.csv")
 
 aids$censor[which(aids$censor==0)]
 aids$censor[which(aids$censor==1)]
@@ -55,7 +55,7 @@ survminer::ggsurvplot(aids.surv, conf.int=TRUE, censor=F) + ggtitle("Overall")
 ```
 
 
-There is a significant difference in survival time between the four groups based on the Log-Rank test (p = 3.21e-12) and Wilcoxon test (p = 4.26e-12). There is an especially noticeable difference in survival times for those with low Karnofsky scores- those on the treatment appeared to have much higher survival probabilities than those on the control.
+There is a significant difference in survival time between the four groups based on the Log-Rank test (p = 3.21e-12) and Wilcoxon test  (p = 4.26e-12). There is an especially noticeable difference in survival times for those with low Karnofsky scores- those on the treatment appeared to have much higher survival probabilities than those on the control.
 
 
 ```{r, include=FALSE}
