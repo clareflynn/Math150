@@ -1,6 +1,7 @@
 ---
 title: "Project 2"
 author: "Clare Flynn"
+output: pdf_document
 ---
 
 In this analysis, I use data from a study testing the success of different HIV medication by Hammer et al. (1997). The response variable in the study is *time*, which indicates in days the time to death, AIDs diagnosis, or the end of the study. There is also a *censor* variable, which indicates whether each patient made it to the end of the study without a diagnosis or death, or not. The explanatory variable of interest is tx, or treatment group, so whether each patient recieved the treatment with the IDV, or the control treatment without the IDV. There are also many other potentially explanatory variables recorded, such as sex, race, age, Karnofsky score, and IV drug use history. 
