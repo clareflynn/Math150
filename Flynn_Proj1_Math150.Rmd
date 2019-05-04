@@ -1,120 +1,463 @@
 ---
-title: "Project 2"
+title: "HIV and AIDs Survival Analysis for the Novel IDV Treatment"
 author: "Clare Flynn"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
-In this analysis, I use data from a study testing the success of different HIV medication by Hammer et al. (1997). The response variable in the study is *time*, which indicates in days the time to death, AIDs diagnosis, or the end of the study. There is also a *censor* variable, which indicates whether each patient made it to the end of the study without a diagnosis or death, or not. The explanatory variable of interest is tx, or treatment group, so whether each patient recieved the treatment with the IDV, or the control treatment without the IDV. There are also many other potentially explanatory variables recorded, such as sex, race, age, Karnofsky score, and IV drug use history. 
+**Introduction**
+
+In this analysis, I use data from a study testing the success of different HIV medication by Hammer et al. (1997). The response variables in the study are *time*, which indicates in days the time to death, AIDs diagnosis, or the end of the study, and  *censor*, which indicates whether each patient made it to the end of the study without a diagnosis or death, or if the event occured before the end of the study. The explanatory variable of interest is tx, or treatment group, so whether each patient recieved the new treatment with protease inhibitor indinavir (IDV), or the control treatment without the IDV. IF this treatment is found to help delay the time to AIDs diagnosis or death, it could improve the quality of life of many people. 
+There are also many other potential confounding variables recorded, including baseline CD4 count, CD4 count at HIV screening later in the study, sex, race, IV drug use history, hemophilia, Karnofsky score, months of prior zdv use, and age at enrollment. In this study, I will analyze how all of these different variables effect the time to death or AIDs diagnosis.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(broom)
 library(survival)
+library(survminer)
+library(leaps)
+library(ggplot2)
+library(pec)
+library(Hmisc)
 ```
 
-```{r, include=FALSE}
+**Methods and Results**
+
+I first break 1/4 of the data into a test set and 3/4 into a training sets. My variable analysis and model building will be based completely on the training set.
+
+```{r}
 aids <- read.csv(file="AIDSdata.csv")
-
-aids$censor[which(aids$censor==0)]
-aids$censor[which(aids$censor==1)]
-aids$censor_d[which(aids$censor_d==1)]
+set.seed(30)
+aids.subset <- sample(c(TRUE, FALSE), nrow(aids), replace=TRUE, prob=c(1/4,3/4))
+aids.tst <- aids[aids.subset,]
+aids.trn <-aids[!aids.subset,]
+dim(aids.tst)
+dim(aids.trn)
 ```
 
-There are 782 uncensored data points in this study, meaning that 782 people survived and were not diagnosed with AIDs by the end of the study period. There are 69 censored data points, meaning 69 people either died or were diagnosed with AIDs before the end of the study period. Of those censored data, 20 of them died during the study.
 
-The following histogram displays the times to diagnosis, death, or the end of the study.
 
-```{r}
-hist(aids$time, xlab="Time (days)", main="Time to Diagnosis, Death, or End of Study")
+***Variable Analysis***
+
+```{r, include=FALSE}
+aids.trn$censor[which(aids.trn$censor==0)]
+aids.trn$censor[which(aids.trn$censor==1)]
+aids.trn$censor_d[which(aids.trn$censor_d==1)]
 ```
 
-This next histogram shows the time to event only for those who died or were diagnosed during the study period.
-
-```{r}
-hist(aids$time[which(aids$censor==1)], xlab="Time (days)", main="Time to Diagnosis or Death")
-```
+There are 587 uncensored data points in the training set, meaning that 587 people survived and were not diagnosed with AIDs by the end of the study period. There are 54 censored data points, meaning 54 people either died or were diagnosed with AIDs before the end of the study period. This indicates that only 8.4% of participants died or were diagnosed with AIDs during the one year of the study. Of those censored data, 19 of them died during the study, and 35 were diagnosed with AIDs. Since only 3% of the participants died during the study, I will be doing a survival analysis of time to death or AIDs diagnosis in order to better identify trends.
 
 
 ```{r, include=FALSE}
-pairs(~time + karnof + cd4 + age + priorzdv, data=aids)
+par(mfrow= c(1,2))
+hist(aids.trn$time, ylim=c(0,210) ,xlab="Time (days)", main="Time to Diagnosis, Death, or End of Study", cex.main=0.82)
+hist(aids.trn$time_d, ylim=c(0,210), xlab="Time (days)", main="Time to Death or End of Study", cex.main=0.82)
 ```
 
-The following is a Kaplan-Meier Curve for all participants in the study. The curve is not very steep, since very few participants died or were diagnosed with AIDs during the study period.
 
-```{r}
-aid.surv <- survfit(Surv(aids$time,  aids$censor)~1, data=aids)
+
+```{r, include=FALSE}
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$sex==1)]) #men die
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$sex==2)]) #women die
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$sex==1)]) #men live
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$sex==2)]) #women live
+
+sex <- cbind(c(44,10), c(492,95))
+chisq.test(sex)
+
+
+
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$tx==0)]) #control die
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$tx==1)]) #treatment die
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$tx==0)]) #control live
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$tx==1)]) #treatment live
+
+tx <- cbind(c(35,19), c(275,312))
+chisq.test(tx)
+
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$strat2==0)]) #low strat die
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$strat2==1)]) #high strat die
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$strat2==0)]) #low strat live
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$strat2==1)]) #high strat live
+
+strat <- cbind(c(40,14), c(214,373))
+chisq.test(strat)
+
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$raceth==1)]) #1 die
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$raceth==2)]) #2 die
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$raceth==3)]) #3 die
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$raceth==4)]) #4 die
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$raceth==5)]) #5 die
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$raceth==1)]) #1 live
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$raceth==2)]) #2 live
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$raceth==3)]) #3 live
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$raceth==4)]) #4 live
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$raceth==5)]) #5 live
+
+
+race <- cbind(c(28,15,8,2,1), c(304,167,103,6,7))
+chisq.test(race)
+
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$ivdrug==1)]) #no die
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$ivdrug==3)]) #yes strat die
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$ivdrug==1)]) #no strat live
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$ivdrug==3)]) #yes strat live
+
+ivdrug <- cbind(c(45,9), c(488,97))
+chisq.test(ivdrug)
+
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$heomphil==0)]) #no die
+length(aids.trn$censor[which(aids.trn$censor==1 & aids.trn$hemophil==1)]) #yes strat die
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$hemophil==0)]) #no strat live
+length(aids.trn$censor[which(aids.trn$censor==0 & aids.trn$hemophil==1)]) #yes strat live
+
+hemo <- cbind(c(0,3), c(569,18))
+chisq.test(hemo)
+
+length(aids.trn$censor[which(aids.trn$ivdrug==1 & aids.trn$strat2==0)]) #low strat die
+length(aids.trn$censor[which(aids.trn$ivdrug==1 & aids.trn$strat2==1)]) #high strat die
+length(aids.trn$censor[which(aids.trn$ivdrug==3 & aids.trn$strat2==0)]) #low strat live
+length(aids.trn$censor[which(aids.trn$ivdrug==3 & aids.trn$strat2==1)]) #high strat live
+
+mix <- cbind(c(210,323), c(44,62))
+chisq.test(mix)
+```
+Table 2. $\chi^2$ table for treatment vs strat2
+
+|        | Censor | No  | Yes |               |
+|--------|--------|-----|-----|---------------|
+| Strat2 | Low    | 214 | 40  |               |
+|        | High   | 373 | 14  | X-sq = 27.699 |
+
+
+Table 2. $\chi^2$ table for treatment vs censor
+
+| Censor    | No  | Yes |               |
+|-----------|-----|-----|---------------|
+| Control   | 275 | 35  |               |
+| Treatment | 312 | 19  |$\chi^2$=5.6926|
+
+
+
+A chi-squared test of independence found that there is a relationship between censor and strat2 (p-adj = 8.508e-07, Table 1), so those with high strat2 counts had different rates of diagnosis or death than those with low counts. Another chi-squared test found a relationship between censor by treatment (p = 0.017, Table 2). However, when using Holm's adjusted p-value for multiple comparisons, the relationship between treatment and censor is no longer significant (p-adj = 0.085). There was also a relationship between hemophilia and censor (p-adj = 5.331e-13), though since only 3 participants had hemophilia, the assumptions are violated, so I do not feel comfortable drawing conclusions about hemophilia.
+
+I next examined the relationship between the variables *cd4* and *strat2*, since they are both based on CD4 counts (Figure 1). The odds ratio is 1.078, so for each additional cd4 count, the odds of having a high strat2 score are 1.078 times what they were for one count lower. Based on the Wald's test, we are 95% confident that the true odds ratio is between (1.065, 1.093), so the initial cd4 count is a significant predictor of strat2. Because of this, I do not expect both variables to be needed in the model.
+
+```{r, echo=FALSE}
+cd <- glm(strat2~cd4, family="binomial", data=aids.trn)
+
+exes <- seq(0,350,by=0.1)
+b0 <- -3.89803 
+b1 <- 0.07553  
+
+plot(strat2~cd4, data=aids.trn)
+lines(exes, exp(b0 + b1*exes) / (1 + exp(b0 + b1*exes)), col="red")
+```
+```{r, include=FALSE}
+cd %>% tidy()
+exp(b1	- 1.96*0.00658293	)
+exp(b1	+ 1.96*0.00658293	)
+
+exp(b1)
+```
+
+Figure 1. The later CD4 count categories (1 = high, 0 = low) by baseline CD4 count
+
+
+
+```{r, include=FALSE}
+plot(censor~cd4, data=aids.trn)
+plot(censor~priorzdv, data=aids.trn)
+plot(censor~age, data=aids.trn)
+```
+
+
+
+
+
+***Kaplan Meier***
+
+The following is a Kaplan-Meier Curve for all participants in the training set of the study (Figure 2). The curve is not very steep, since very few participants died or were diagnosed with AIDs during the study period. I then separated the Kaplan-Meier curves by treatment, to assess if treatment effects time to event, and strat2, to see the stage of the disease on time to event (Figure 3).
+
+```{r, echo=FALSE}
+aid.surv <- survfit(Surv(aids.trn$time,  aids.trn$censor)~1, data=aids.trn)
 survminer::ggsurvplot(aid.surv, conf.int=TRUE, censor=F) + ggtitle("Overall")
 ```
 
-```{r, include=FALSE}
-aids <-  mutate(aids, k = ifelse(karnof < 81, "lo", "hi"))
-```
+Figure 2. The Kaplan-Meier curve on all of the data where the event is diagnosis or death
 
 
-The following are Kaplan-Meier Curves for the groups control and high Karnofsky score (red), control and low Karnofsky score (green), treatment and high Karnofsky score (blue), and treatment and low Karnofsky score (purple). 
 
 ```{r}
-aids.surv <- survfit(Surv(aids$time,  aids$censor)~tx + k, data=aids)
-survminer::ggsurvplot(aids.surv, conf.int=TRUE, censor=F) + ggtitle("Overall")
+aids.trn.surv <- survfit(Surv(aids.trn$time,  aids.trn$censor)~tx + strat2, data=aids.trn)
+survminer::ggsurvplot(aids.trn.surv, conf.int=TRUE, censor=F) + ggtitle("Overall")
+```
+
+Figure 2. The Kaplan-Meier curve separated by *strat2* and treatment, where the event is diagnosis or death
+
+```{r, include=FALSE}
+survdiff(Surv(aids.trn$time, aids.trn$censor)~txgrp + strat2, data=aids.trn,  rho=0)
+survdiff(Surv(aids.trn$time, aids.trn$censor)~txgrp + strat2, data=aids.trn,  rho=1)
 ```
 
 
-There is a significant difference in survival time between the four groups based on the Log-Rank test (p = 3.21e-12) and Wilcoxon test  (p = 4.26e-12). There is an especially noticeable difference in survival times for those with low Karnofsky scores- those on the treatment appeared to have much higher survival probabilities than those on the control.
+There is a significant difference in survival time between the four groups based on the Log-Rank test and Wilcoxon test  (both p = 4.26e-12, Figure 3). There is an especially noticeable difference in survival times for those with high strat2 counts- those on the treatment appeared to have much higher survival probabilities than those on the control. This indicates that there could be an interaction term needed between strat2 and treatment.
+
+
+
+***Cox PH***
+
+In order to pick a Cox Proportional Hazard model, I used a log-rank test to select the most effective, yet parsimonious model. I used both backwards and forward selection, starting with the following full model, and came up with the two models.
+
+```{r, results='hide', warning=FALSE}
+coxph(Surv(time,censor) ~ (tx + strat2 + sex + ivdrug  + cd4 +  age + karnof + raceth
+                           + hemophil + priorzdv)^2, data=aids.trn, x=TRUE, y=TRUE)
+```
+
+I then took out the least significant term one by one, and calculated the drop in deviance for each new model. I continued this process until the drop was significant, then selected the previous model. For the forward selection model, I started with the null model. I then added the most significant term from the full model, and calculated the "drop" in deviance. When it was significant, I then went on and took that term out of the full model to find the next most significant term, and added that to the model. I continued this process until the "drop" in deviance was not significant, then used the previous model.
+
+```{r, include=FALSE}
+coxph(Surv(time,censor) ~ tx + strat2 + sex + ivdrug  + cd4 +  age + karnof + raceth + hemophil + priorzdv, data=aids.trn, x=TRUE, y=TRUE)$loglik
+coxph(Surv(time,censor) ~ tx + strat2 + sex + ivdrug  + cd4 +  age + karnof , data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-306.5554 - -307.6274)*2, 1)
+
+coxph(Surv(time,censor) ~ (tx + strat2 + sex + ivdrug  + cd4 +  age + karnof )^2 , data=aids.trn, x=TRUE, y=TRUE)$loglik
+
+coxph(Surv(time,censor) ~ (tx  + sex + ivdrug  + cd4 +  age + karnof )^2 + strat2, data=aids.trn, x=TRUE, y=TRUE)$loglik
+
+1-pchisq((-301.8414- -302.9326)*2, 1)
+
+
+coxph(Surv(time,censor) ~ tx + strat2 + sex + ivdrug  + cd4 +  age + karnof + ivdrug*tx + ivdrug * cd4 + ivdrug*sex +  ivdrug* age + ivdrug* karnof + tx * cd4 + tx*sex +  tx* age + tx* karnof + sex* cd4 + sex* age + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+
+coxph(Surv(time,censor) ~ tx + strat2 + sex + ivdrug  + cd4 +  age + karnof + ivdrug*tx + ivdrug * cd4 + ivdrug*sex +  ivdrug* age + ivdrug* karnof + tx * cd4 + tx*sex +  tx* age + tx* karnof + sex* cd4 + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-302.9326 - -302.9568)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof + ivdrug*tx + ivdrug * cd4 + ivdrug*sex +  ivdrug* age + ivdrug* karnof + tx * cd4 + tx*sex +  tx* age + tx* karnof + sex* cd4 + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-302.9568 - -303.0202)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof + ivdrug * cd4 + ivdrug*sex +  ivdrug* age + ivdrug* karnof + tx * cd4 + tx*sex +  tx* age + tx* karnof + sex* cd4 + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-303.0202 - -303.0941)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof + ivdrug * cd4 + ivdrug*sex +  ivdrug* age + ivdrug* karnof + tx * cd4 + tx*sex  + tx* karnof + sex* cd4 + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-303.0941 - -303.1571)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof  + ivdrug*sex +  ivdrug* age + ivdrug* karnof + tx * cd4 + tx*sex  + tx* karnof + sex* cd4 + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-303.1571 - -303.3388)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof  + ivdrug*sex +  ivdrug* age + tx * cd4 + tx*sex  + tx* karnof + sex* cd4 + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-303.3388 - -303.4328)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof  + ivdrug*sex  + tx * cd4 + tx*sex  + tx* karnof + sex* cd4 + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-303.4328 - -303.5996)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof  + ivdrug*sex  + tx * cd4 + tx*sex + sex* cd4 + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-303.5996 - -303.7918)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof  + ivdrug*sex  + tx * cd4 + tx*sex + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-303.7918 - -304.0108)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof  + ivdrug*sex + tx*sex + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-304.0108 - -304.3379)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug  + cd4 +  age + karnof + tx*sex + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-304.3379 - -304.8229)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + cd4 +  age + karnof + tx*sex + sex* karnof + cd4*age + cd4* karnof + age*karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-304.8229 - -305.0899)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + cd4 +  age + karnof + tx*sex + sex* karnof + cd4*age + cd4* karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-305.0899 - -305.6791)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + cd4 +  age + karnof + tx*sex + sex* karnof + cd4*age, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-305.6791 - -306.1555)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + cd4 +  age + karnof + sex* karnof + cd4*age, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-306.1555 - -306.7301)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + sex + cd4 +  age + karnof + cd4*age, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-306.7301 - -307.2381)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + cd4 +  age + karnof + cd4*age, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-307.2381 - -307.5891)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + cd4 +  age + karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-307.5891 - -308.3548)*2, 1)
+
+coxph(Surv(time,censor) ~ tx + cd4 + karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-308.3548 - -308.8496)*2, 1)
+
+coxph(Surv(time,censor) ~cd4 + karnof, data=aids.trn, x=TRUE, y=TRUE)$loglik
+1-pchisq((-308.8496 - -311.1969)*2, 1)
+```
+
+The best model from the drop in deviance test using backwards selection includes treatment, baseline cd4, and karnofsky score. Though I included interaction terms in the full model, the log-likelihood test determined none of them were necessary in the final model. I then used backwards selection on the full model without interactions to see if the results would be the same, and it did return the same model.
+
+
+
 
 
 ```{r, include=FALSE}
-survdiff(Surv(aids$time, aids$censor)~txgrp + k, data=aids,  rho=0)
-survdiff(Surv(aids$time, aids$censor)~txgrp + k, data=aids,  rho=1)
+coxph(Surv(time,censor) ~ tx + strat2 + sex + raceth + ivdrug + hemophil  + karnof + cd4 + priorzdv + age, data=aids.trn)$loglik
+
+coxph(Surv(time,censor) ~ tx + strat2 + sex + ivdrug + hemophil  + karnof + cd4 + priorzdv + age, data=aids.trn)$loglik
+1 - pchisq((-306.5554 - -306.5794)*2,1)
+
+coxph(Surv(time,censor) ~ tx + sex + ivdrug + hemophil  + karnof + cd4 + priorzdv + age, data=aids.trn)$loglik
+1 - pchisq((-306.5794 - -306.6186)*2,1)
+
+coxph(Surv(time,censor) ~ tx + sex + hemophil  + karnof + cd4 + priorzdv + age, data=aids.trn)$loglik
+1 - pchisq((-306.6186 - -306.8700)*2,1)
+
+coxph(Surv(time,censor) ~ tx + sex + hemophil  + karnof + cd4 + age, data=aids.trn)$loglik
+1 - pchisq((-306.8700 - -307.3061)*2,1)
+
+coxph(Surv(time,censor) ~ tx + hemophil  + karnof + cd4 + age, data=aids.trn)$loglik
+1 - pchisq((-307.3061 - -307.6934)*2,1)
+
+coxph(Surv(time,censor) ~ tx + hemophil  + karnof + cd4, data=aids.trn)$loglik
+1 - pchisq((-307.6934 - -308.3259)*2,1)
+
+coxph(Surv(time,censor) ~ tx  + karnof + cd4, data=aids.trn)$loglik
+1 - pchisq((-308.3259 - -308.8496)*2,1)
+
+coxph(Surv(time,censor) ~karnof + cd4, data=aids.trn)$loglik
+1 - pchisq((-308.8496 - -311.1969)*2,1)
 ```
+
+```{r, include=FALSE}
+coxph(Surv(time,censor) ~ tx + strat2 + sex + raceth + ivdrug + hemophil  + karnof + cd4 + priorzdv + age, data=aids.trn)
+
+coxph(Surv(time,censor) ~ 1, data=aids.trn)$loglik
+
+coxph(Surv(time,censor) ~ karnof, data=aids.trn)$loglik
+1-pchisq((-328.1902 - -338.4827)*2,1)
+
+coxph(Surv(time,censor) ~ tx + strat2 + sex + raceth + ivdrug + hemophil+ cd4 + priorzdv + age, data=aids.trn)
+
+coxph(Surv(time,censor) ~ cd4 + karnof, data=aids.trn)$loglik
+1-pchisq((-311.1969 - -328.1902)*2,1)
+
+coxph(Surv(time,censor) ~ tx + strat2 + sex + raceth + ivdrug + hemophil + priorzdv + age, data=aids.trn)
+
+coxph(Surv(time,censor) ~ cd4 + karnof + cd4*karnof, data=aids.trn)$loglik
+1-pchisq((-310.8002 - -311.1969)*2,1)
+#Or:
+coxph(Surv(time,censor) ~ cd4 + karnof + strat2, data=aids.trn)$loglik
+1-pchisq((-310.9325 - -311.1969)*2,1)
+```
+From forward selection process, the best model uses baseline cd4 and karnofsky score. Again, though interaction terms were included, none of them were selected for the final model.
+
+
+
+***Cross-Validation***
+
+```{r, include=FALSE}
+forw.ph <- coxph(Surv(time,censor) ~ cd4 + karnof, data=aids.trn, x=TRUE, y=TRUE)
+back.ph <- coxph(Surv(time,censor) ~ cd4 + karnof + tx, data=aids.trn, x=TRUE, y=TRUE)
+
+cox.zph(forw.ph)
+cox.zph(back.ph)
+
+cindex(forw.ph, data=aids.tst)
+cindex(back.ph, data=aids.tst)
+```
+
+I first tested the proportional hazard assumptions for each model, and found that they were not violated. I then used the package *pec* to cross-validate each of my models with the testing dataset. The model of *cd4*, *karnof*, and *tx*, found using backwards selection, had the highest C-index, meaning it had the most concordant pairs, so it predicted the test data the best. I submit the following model to be tested using the remainder of the dataset:
+
+```{r}
+flynn.ph <- coxph(Surv(time,censor) ~ cd4 + karnof + tx, data=aids, x=TRUE, y=TRUE)
+```
+
+
+
+
+
+
+
+
 
 
 
 ***Something New***
 
-I will use the Weibull model in order to do a more in depth survival analysis. The Weibull model is simial to KM and Cox Hazards, but adds in the variables $\lambda$ and $p$, where $\lambda$ is a scale parameter, and $p$ is a shape parameter.
+I used the Weibull model in order to do a more in depth survival analysis. The Weibull model is simial to Kaplan-Meier, but adds in the variables $\lambda$, $p$, and $\mu$, where $\lambda$ is a scale parameter, and $p$ is a shape parameter and $\mu$ is the location parameter (Zhang 2016, Rodriguez 2010).
 
-The equation for the instantaneous hazard is
+The equation for the instantaneous hazard (Stevenson 2009) is
 
 $$h(t) = \lambda*p*t^{p-1}$$
 
-The equation for the cumulative hazard is
+The equation for the cumulative hazard (Stevenson 2009) is
 
 $$ H(t) = \lambda*t^p$$
 
-And the equation for the cumulative survival rate is 
+The equation for the cumulative survival rate (Stevenson 2009) is 
 
 $$ S(t) = e^{-(\lambda*t)^p}$$
 
-The following plot is the Weibull curves plotted on top of the KM curve, since I don't know how to do it better yet.
 
-```{r}
+And the equation for the pdf (Reliability Engineering Resources 2019) is
 
-plot(survfit(Surv(aids$time, aids$censor)~1, data=aids))
+$$f(t) = p/\lambda((t-\mu)/\lambda)^{p-1}*e^{-((t-\mu)/\lambda)^{p}}$$
 
-sWei <- survreg(Surv(aids$time, aids$censor)~tx + k, data=aids,dist='weibull')
 
-lines(predict(sWei, newdata=list(tx=1, k="lo"),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="purple")
 
-lines(predict(sWei, newdata=list(tx=0, k="lo"),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="green")
+```{r, echo=FALSE}
+par(mfrow= c(1,2))
 
-lines(predict(sWei, newdata=list(tx=1, k="hi"),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="blue")
+plot(aids.trn.surv, col=c("red", "green", "blue", "purple"))
 
-lines(predict(sWei, newdata=list(tx=0, k="hi"),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="red")
+sWei <- survreg(Surv(aids.trn$time, aids.trn$censor)~tx + strat2, data=aids.trn ,dist='weibull', scale=2)
+
+plot(predict(sWei, newdata=list(tx=1, strat2=1),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="purple", type="l", xlim=c(0,365), xlab= "Time (days)", ylab="Survival Probability")
+
+lines(predict(sWei, newdata=list(tx=0, strat2=1),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="green")
+
+lines(predict(sWei, newdata=list(tx=1, strat2=0),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="blue")
+
+lines(predict(sWei, newdata=list(tx=0, strat2=0),type="quantile",p=seq(.01,.99,by=.01)),seq(.99,.01,by=-.01),col="red")
+
+legend(0,0.45, legend=c("tx=1, strat2=1", "tx=0, strat2=1", "tx=1, strat2=0", "tx=0, strat2=0"),
+       col=c("purple", "green" ,"blue","red"), lty=1, cex=0.9)
 ```
 
-These curves look very similar to the KM curves above, but are much smoother. The extra parameters must make the function less step-wise. 
-
-A challenge moving forward will be understanding what the different pieces of the equations for making this model mean. Especially since every source I find uses different notations for the equations.
+Figure 4. A comparison of Kaplan Meier survival curves (left) and Weibull curves over the one year of the study
 
 
-I will use the following sources to help understand the Weibull functions (and will correctly cite them for the final project)
+```{r, echo=FALSE}
+summary(sWei)
+```
 
-http://www.massey.ac.nz/massey/fms/Colleges/College%20of%20Sciences/Epicenter/docs/ASVCS/Stevenson_survival_analysis_195_721.pdf
+The summary returns that both the treatment and the cd4 at stratification were significant predictors of time of diagnosis or death.
 
-https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5233524/
+The Weibull model has a location parameter, which starts the curve at the time of the first event. The purple curve, treatment and high strat2, doesn't start until about 75 days into the study, because no one no one in that group dies or is diagnosed with AIDs in the first 75 days.
 
-https://data.princeton.edu/pop509/ParametricSurvival.pdf
+These curves look very similar to the KM curves above, but are much smoother. This is a prediction of Survival rates based on the actual data, whereas the KM curves are made from the actual data.
+
+**Discussion**
+
+The best model for predicting HIV/AIDs survivorship used baseline CD4 count, Karnofsky score, and treatment. Both CD4 count and Karnofsky score are measures of the health of the patient, and how far the disease has progressed by the start of the trial (VITAS Healthcare 2014). Essentially, these variables control for the different stages of HIV that participants entered the trial in. 
+
+It is very exciting that treatment was included in the model as a treatment of time to diagnosis or death. This indicates that there is a difference in time between those on the treatment vs those in the control group. In this study, those on the treatment had more time to live their lives without and AIDs diagnosis or death (Table 2). More analysis should be done to determine which stage of the disease this treatment works best for, but from this study, we can determine that the treatment shows a lot of promise.
+
+
+**References**
+
+Hammer, S. M., Squires, K. E., Hughes, M. D., Grimes, J. M., Demeter, L. M., Currier, J. S., ... Cook, J. C. (1997). A Controlled Trial of Two Nucleoside Analogues plus Indinavir in Persons with Human Immunodeficiency Virus Infection and CD4 Cell Counts of 200 per Cubic Millimeter or Less. New England Journal of Medicine, 337(11), 725-733. https://www.nejm.org/doi/full/10.1056/NEJM199709113371101
+
+
+Reliability Engineering Resources. (2019). Life Data Analysis (Weibull Analysis). Retrieved from https://www.weibull.com/basics/lifedata.htm
+
+Rodriguez, G. (2010). Parametric Survival Models. Retrieved from https://data.princeton.edu/pop509/ParametricSurvival.pdf
+
+Stevenson, M. (2009, June 4). An Introduction to Survival Analysis. Retrieved from http://www.massey.ac.nz/massey/fms/Colleges/College%20of%20Sciences/Epicenter/docs/ASVCS/Stevenson_survival_analysis_195_721.pdf
+
+VITAS Healthcare. (2014). Hospice Eligibility Guidelines for End-Stage HIV & AIDS. Retrieved from https://www.vitas.com/for-healthcare-professionals/evaluating-patients-for-hospice-and-palliative-care/clinical-hospice-guidelines-by-diagnosis/hiv-and-aids/
+
+Zhang, Z. (2016). Parametric regression model for survival data: Weibull regression model as an example. Annals of Translational Medicine, 4(24), 484-484. Retrieved from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5233524/.
+
 
 
 
